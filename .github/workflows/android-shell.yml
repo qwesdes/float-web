@@ -1,0 +1,66 @@
+name: Build Android Shell APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: 'HTTPS 站点地址（留空则用仓库变量 SHELL_SITE_URL）'
+        required: false
+        default: ''
+  push:
+    branches: [main]
+    paths:
+      - 'android-shell/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-shell
+    env:
+      SHELL_SITE_URL: ${{ github.event.inputs.site_url != '' && github.event.inputs.site_url || vars.SHELL_SITE_URL }}
+      KEYSTORE_B64: ${{ secrets.SHELL_KEYSTORE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Check site url
+        run: |
+          if [ -z "$SHELL_SITE_URL" ]; then
+            echo "SHELL_SITE_URL 没填，打出来会白屏"; exit 1
+          fi
+          echo "site: $SHELL_SITE_URL"
+
+      - name: Decode keystore (optional)
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/shell.keystore"
+          echo "SHELL_KEYSTORE_FILE=$RUNNER_TEMP/shell.keystore" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          SHELL_KEYSTORE_PASSWORD: ${{ secrets.SHELL_KEYSTORE_PASSWORD }}
+          SHELL_KEY_ALIAS: ${{ secrets.SHELL_KEY_ALIAS }}
+          SHELL_KEY_PASSWORD: ${{ secrets.SHELL_KEY_PASSWORD }}
+        run: gradle assembleDebug assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: float-shell-debug
+          path: android-shell/app/build/outputs/apk/debug/*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: float-shell-release
+          path: android-shell/app/build/outputs/apk/release/*.apk
